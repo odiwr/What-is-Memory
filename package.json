@@ -1,0 +1,17 @@
+{
+  "name": "memory-research",
+  "version": "1.0.0",
+  "description": "WebGL Scrollytelling Memory Research",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "gsap": "^3.12.2",
+    "three": "^0.158.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

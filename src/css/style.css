@@ -1,0 +1,55 @@
+/* Reset and Base Styling */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: sans-serif;
+  background: linear-gradient(135deg, #fc9013, #fb490a);
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+/* Fixed WebGL Background */
+#webgl-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+}
+
+/* Scrollytelling Sections */
+.scroll-container {
+  position: relative;
+  z-index: 1;
+}
+
+.step {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 10vw;
+}
+
+.content {
+  max-width: 400px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2rem;
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.content h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.content p {
+  font-size: 1.2rem;
+  line-height: 1.5;
+}
