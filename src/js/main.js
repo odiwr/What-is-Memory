@@ -4,6 +4,11 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // Added GLTFLoader
 
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
 gsap.registerPlugin(ScrollTrigger);
 
 // 1. Core Setup
@@ -18,8 +23,86 @@ const renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialia
 renderer.setSize(sizes.width, sizes.height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-const palette = ['#3a7a59', '#57179e', '#cc9b2c', '#1948bd', '#e2d2eb'].map(hex => new THREE.Color(hex));
+const palette = ['#3a7a59', '#57179e', '#cc9b2c', '#cc9b2c', '#cc9b2c', '#cc9b2c', '#1948bd', '#e2d2eb'].map(hex => new THREE.Color(hex));
 
+// --- POST-PROCESSING PIPELINE ---
+const composer = new EffectComposer(renderer);
+
+// 1. Render the base 3D scene
+const renderScene = new RenderPass(scene, camera);
+composer.addPass(renderScene);
+
+// 2. Add Bloom (Glow Aura)
+// Parameters: resolution, strength, radius, threshold
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(sizes.width, sizes.height), 1.2, 0.5, 0.1);
+composer.addPass(bloomPass);
+
+// 3. Custom Dot Overlay Shader Pass
+const DotOverlayShader = {
+    uniforms: {
+        tDiffuse: { value: null }, // The previously rendered frame (Scene + Bloom)
+        uTime: { value: 0 },
+        uResolution: { value: new THREE.Vector2(sizes.width, sizes.height) }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float uTime;
+        uniform vec2 uResolution;
+        varying vec2 vUv;
+
+        // Pseudo-random noise function for the jitter
+        float random(vec2 st) {
+            return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+        }
+
+        void main() {
+            // Get the base scene colors
+            vec4 sceneColor = texture2D(tDiffuse, vUv);
+            
+            // Calculate how bright this specific pixel is
+            float luminance = dot(sceneColor.rgb, vec3(0.299, 0.587, 0.114));
+
+            // Set up a grid for the dots
+            vec2 screenCoord = vUv * uResolution;
+            float dotScale = 4.0; // Increase this to make the dots larger
+
+            // Create a fast, microscopic jitter effect 
+            // Snaps the time to discrete steps so it looks like film grain/analog jitter
+            float timeStep = floor(uTime * 12.0); 
+            vec2 jitter = vec2(
+                (random(vUv + timeStep) - 0.5) * 2.5,
+                (random(vUv - timeStep) - 0.5) * 2.5
+            );
+
+            // Apply jitter to the grid
+            vec2 gridUv = (screenCoord + jitter) / dotScale;
+            vec2 localUv = fract(gridUv) - 0.5;
+
+            // Draw a soft circle inside each grid cell
+            float dotShape = 1.0 - smoothstep(0.1, 0.35, length(localUv));
+
+            // MASKING: Only make the dots visible if the scene underneath is bright (glowing)
+            // The brighter the 3D scene, the more opaque the dots become
+            float dotVisibility = smoothstep(0.1, 0.8, luminance);
+            
+            // Mix the white dots with the scene based on the mask
+            vec3 finalColor = sceneColor.rgb + (vec3(1.0) * dotShape * dotVisibility * 0.4);
+
+            gl_FragColor = vec4(finalColor, sceneColor.a);
+        }
+    `
+};
+
+const dotPass = new ShaderPass(DotOverlayShader);
+composer.addPass(dotPass);
+// --------------------------------
 
 // Update your core setup area:
 const cameraGroup = new THREE.Group();
@@ -395,26 +478,29 @@ const tick = () => {
     previousTime = elapsedTime;
 
     customUniforms.uTime.value = elapsedTime;
+    
+    // Update the dot shader time for the jitter effect
+    dotPass.uniforms.uTime.value = elapsedTime;
 
-    // 1. Smooth Mouse Parallax applied to the Camera Group
+    // Smooth Mouse Parallax applied to the Camera Group
     targetX = cursor.x * 2;
     targetY = cursor.y * 2;
 
     cameraGroup.position.x += (targetX - cameraGroup.position.x) * 0.05;
     cameraGroup.position.y += (-targetY - cameraGroup.position.y) * 0.05;
 
-    // 2. Continuous ambient spin for the background particles
     if (window.particleMesh) {
         window.particleMesh.rotation.y = elapsedTime * 0.02;
         window.particleMesh.rotation.x = elapsedTime * 0.01;
     }
 
-    // 3. Gentle ambient floating for the Earth (doesn't fight GSAP)
     if (window.earthMesh) {
         window.earthMesh.position.y += Math.sin(elapsedTime) * 0.001;
     }
 
-    renderer.render(scene, camera);
+    // USE THE COMPOSER INSTEAD OF THE RENDERER
+    composer.render();
+    
     window.requestAnimationFrame(tick);
 };
 
@@ -429,4 +515,8 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 
     renderer.setSize(sizes.width, sizes.height);
+    
+    // Update post-processing pipeline on resize
+    composer.setSize(sizes.width, sizes.height);
+    dotPass.uniforms.uResolution.value.set(sizes.width, sizes.height);
 });
