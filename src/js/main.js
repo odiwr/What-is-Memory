@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // Added GLTFLoader
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -111,268 +112,235 @@ material.onBeforeCompile = (shader) => {
         `
     );
 };
-
 // 4. Load & Pre-Process Data
-fetch('/src/data/earthData.json')
-    .then(response => response.json())
-    .then(earthData => {
-        // Removed the initial `reducedData` filter so we start with 100% of the vertices
+const gltfLoader = new GLTFLoader();
 
-        let minR = Infinity;
-        earthData.forEach(p => {
-            const r = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-            if (r < minR) minR = r;
-        });
-
-        const finalData = [];
-        earthData.forEach((point, index) => {
-            const r = Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
-            const isOcean = r < (minR + 0.15);
-
-            if (isOcean) {
-                // Heavily cull ocean points to save performance (keeping roughly 2% of them)
-                if (index % 2 !== 0 || Math.random() > 0.04) return;
-
-                const jitter = 0.6;
-                finalData.push({
-                    x: point.x + (Math.random() - 0.5) * jitter,
-                    y: point.y + (Math.random() - 0.5) * jitter,
-                    z: point.z + (Math.random() - 0.5) * jitter
-                });
-            } else {
-                // LAND: Keep 100% of the land vertices
-                finalData.push(point);
-            }
-        });
-
-        const instanceCount = finalData.length;
-        const instancedMesh = new THREE.InstancedMesh(baseGeometry, material, instanceCount);
-        const rotationSpeeds = new Float32Array(instanceCount);
-        const rotationAxes = new Float32Array(instanceCount * 3);
-        const randomOffsets = new Float32Array(instanceCount * 3);
-        const dummy = new THREE.Object3D();
-        const modelScale = 1.35;
-
-        finalData.forEach((point, i) => {
-            dummy.position.set(point.x * modelScale, point.y * modelScale, point.z * modelScale);
-            dummy.updateMatrix();
-            instancedMesh.setMatrixAt(i, dummy.matrix);
-
-            rotationSpeeds[i] = 0.5 + Math.random() * 2.0;
-            const randomAxis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-            rotationAxes[i * 3] = randomAxis.x;
-            rotationAxes[i * 3 + 1] = randomAxis.y;
-            rotationAxes[i * 3 + 2] = randomAxis.z;
-
-            randomOffsets[i * 3] = (Math.random() - 0.5) * 80;
-            randomOffsets[i * 3 + 1] = (Math.random() - 0.5) * 80;
-            randomOffsets[i * 3 + 2] = (Math.random() - 0.5) * 80;
-
-            // Apply the specific color palette
-            const color = palette[Math.floor(Math.random() * palette.length)];
-            instancedMesh.setColorAt(i, color);
-        });
-        instancedMesh.instanceMatrix.needsUpdate = true; // Optimization: explicitly tell the GPU to update
-
-        instancedMesh.geometry.setAttribute('aRotationSpeed', new THREE.InstancedBufferAttribute(rotationSpeeds, 1));
-        instancedMesh.geometry.setAttribute('aRotationAxis', new THREE.InstancedBufferAttribute(rotationAxes, 3));
-        instancedMesh.geometry.setAttribute('aRandomOffset', new THREE.InstancedBufferAttribute(randomOffsets, 3));
-
-        // FIX 2: Wrapper Group to fix Upside Down Earth
-        const earthContainer = new THREE.Group();
-
-        // Flip the raw mesh 180 degrees (Math.PI) on the Z axis. 
-        // If it's still sideways, change this to .rotation.x or add .rotation.y
-        instancedMesh.rotation.z = Math.PI;
-
-        earthContainer.add(instancedMesh);
-        scene.add(earthContainer);
-
-        // Expose the PARENT CONTAINER to GSAP, not the raw mesh
-        window.earthMesh = earthContainer;
-
-        // -------------------------------------------------------------------
-        // FOREGROUND/BACKGROUND AMBIENT PARTICLES
-        // -------------------------------------------------------------------
-        const particleCount = 2000;
-
-        // 1. Build a custom 3D Pyramid Wireframe using thin cylinders
-        const pr = 0.12; // Overall size of the cone/pyramid
-        const pThickness = 0.003; // Extremely thin, crisp lines (thicker than 1px, but not bulky)
-        
-        // 4 vertices of a tetrahedron (pyramid/cone proxy)
-        const pv0 = new THREE.Vector3(0, pr, 0);       // Top point
-        const pv1 = new THREE.Vector3(-pr, -pr, pr);   // Base left
-        const pv2 = new THREE.Vector3(pr, -pr, pr);    // Base right
-        const pv3 = new THREE.Vector3(0, -pr, -pr);    // Base back
-
-        const pyramidEdges = [
-            [pv0, pv1], [pv0, pv2], [pv0, pv3], // Vertices from top to base
-            [pv1, pv2], [pv2, pv3], [pv3, pv1]  // The base triangle perimeter
-        ];
-
-        const pEdgeGeometries = [];
-        pyramidEdges.forEach(edge => {
-            const start = edge[0];
-            const end = edge[1];
-            const distance = start.distanceTo(end);
-            
-            // 3 radial segments is plenty for a thin wire, keeping poly count optimized
-            const cylinder = new THREE.CylinderGeometry(pThickness, pThickness, distance, 3); 
-            const center = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-            const axis = new THREE.Vector3().subVectors(end, start).normalize();
-            const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
-            
-            cylinder.applyQuaternion(quaternion);
-            cylinder.translate(center.x, center.y, center.z);
-            pEdgeGeometries.push(cylinder);
-        });
-
-        const particleGeom = mergeGeometries(pEdgeGeometries);
-
-        const bluePalette = ['#00e5ff', '#1948bd', '#4da6ff', '#00bfff', '#8c1aff'].map(hex => new THREE.Color(hex));
-
-        const particleMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            wireframe: false, // Turn off WebGL wireframes, our custom geometry IS the wireframe
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending // Forces intersecting joints to glow instead of creating dark overlaps
-        });
-
-        particleMat.onBeforeCompile = (shader) => {
-            shader.uniforms.uTime = customUniforms.uTime;
-
-            shader.vertexShader = `
-                uniform float uTime;
-                attribute float aParticleSpeed;
-                attribute vec3 aParticleAxis;
-                attribute float aPhase;
-                varying float vDistance;
-
-                mat4 rotationMatrix(vec3 axis, float angle) {
-                    axis = normalize(axis);
-                    float s = sin(angle);
-                    float c = cos(angle);
-                    float oc = 1.0 - c;
-                    return mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s, 0.0,
-                                oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s, 0.0,
-                                oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c, 0.0,
-                                0.0, 0.0, 0.0, 1.0);
-                }
-            ` + shader.vertexShader;
-
-            shader.vertexShader = shader.vertexShader.replace(
-                '#include <project_vertex>',
-                `
-                mat4 localRot = rotationMatrix(aParticleAxis, uTime * aParticleSpeed);
-                vec3 localPos = (localRot * vec4(transformed, 1.0)).xyz;
-                
-                vec4 instanceWorldPos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-                float distToCam = distance(cameraPosition, instanceWorldPos.xyz);
-                
-                float oscAmount = exp(-distToCam * 0.15) * 1.5; 
-                
-                vec3 oscillation = vec3(
-                    sin(uTime * 0.05 + aPhase),
-                    cos(uTime * 0.04 + aPhase),
-                    sin(uTime * 0.06 - aPhase)
-                ) * oscAmount;
-                
-                vec4 worldPosition = modelMatrix * instanceMatrix * vec4(localPos, 1.0);
-                worldPosition.xyz += oscillation;
-                
-                vec4 mvPosition = viewMatrix * worldPosition;
-                gl_Position = projectionMatrix * mvPosition;
-                
-                vDistance = -mvPosition.z; 
-                `
-            );
-
-            shader.fragmentShader = `
-                varying float vDistance;
-            ` + shader.fragmentShader;
-
-            shader.fragmentShader = shader.fragmentShader.replace(
-                '#include <opaque_fragment>',
-                `
-                #include <opaque_fragment>
-                
-                float depthOpacity = smoothstep(1.0, 5.0, vDistance);
-                float backFade = exp(-(vDistance - 5.0) * 0.04); 
-                
-                // Adjusted alpha down slightly because AdditiveBlending makes the lines naturally brighter
-                float finalAlpha = depthOpacity * clamp(backFade, 0.0, 1.0) * 0.5;
-                
-                gl_FragColor = vec4(gl_FragColor.rgb, finalAlpha);
-                `
-            );
-        };
-
-        const particleMesh = new THREE.InstancedMesh(particleGeom, particleMat, particleCount);
-        const pDummy = new THREE.Object3D();
-
-        const pRotSpeeds = new Float32Array(particleCount);
-        const pRotAxes = new Float32Array(particleCount * 3);
-        const pPhases = new Float32Array(particleCount);
-
-        for (let i = 0; i < particleCount; i++) {
-            const skew = Math.pow(Math.random(), 2.5);
-            const z = 16.5 - (skew * 45);
-
-            pDummy.position.x = (Math.random() - 0.5) * 50;
-            pDummy.position.y = (Math.random() - 0.5) * 50;
-            pDummy.position.z = z;
-
-            const distFromCam = Math.abs(15 - z);
-
-            // Re-balanced the scale map for the new 3D pyramid geometry
-            let pScale = 2.0 + (Math.random() * 2.0); 
-            pScale += Math.exp(-distFromCam * 0.2) * 8.0;
-
-            pDummy.scale.set(pScale, pScale, pScale);
-
-            pDummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-            pDummy.updateMatrix();
-            particleMesh.setMatrixAt(i, pDummy.matrix);
-            
-            particleMesh.setColorAt(i, bluePalette[Math.floor(Math.random() * bluePalette.length)]);
-            
-            pRotSpeeds[i] = (Math.random() - 0.5) * 0.15;
-
-            const ax = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
-            pRotAxes[i * 3] = ax.x;
-            pRotAxes[i * 3 + 1] = ax.y;
-            pRotAxes[i * 3 + 2] = ax.z;
-
-            pPhases[i] = Math.random() * Math.PI * 2.0;
-        }
-
-        particleMesh.geometry.setAttribute('aParticleSpeed', new THREE.InstancedBufferAttribute(pRotSpeeds, 1));
-        particleMesh.geometry.setAttribute('aParticleAxis', new THREE.InstancedBufferAttribute(pRotAxes, 3));
-        particleMesh.geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(pPhases, 1));
-
-        scene.add(particleMesh);
-        window.particleMesh = particleMesh;
-
-        // Updated load state (index 0) and synchronized Y/Z for remaining states
-        window.sceneStates = [
-            { rotX: -1.60, rotY: 0.08, rotZ: 3.00, posX: 2.38, posY: -2.57, posZ: 3.62 }, // 0. New Load State    
-            { rotX: 0.2, rotY: 0, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
-            { rotX: 0.8, rotY: 3.14, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
-            { rotX: 0, rotY: -1.57, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
-            { rotX: 0, rotY: 3.14, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
-            { rotX: -0.8, rotY: 3.14, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
-            { rotX: -1.57, rotY: 0, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
-            { rotX: -0.5, rotY: 0, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 }
-        ];
-
-        // Apply these values immediately to the mesh container
-        window.earthMesh.position.set(window.sceneStates[0].posX, window.sceneStates[0].posY, window.sceneStates[0].posZ);
-        window.earthMesh.rotation.set(window.sceneStates[0].rotX, window.sceneStates[0].rotY, window.sceneStates[0].rotZ);
-
-        initGSAPScrollytelling();
+// Load both the Earth JSON and the custom Blender GLB simultaneously
+Promise.all([
+    fetch('/src/data/earthData.json').then(response => response.json()),
+    gltfLoader.loadAsync('src/data/triangle.glb') // UPDATE THIS PATH
+]).then(([earthData, gltf]) => {
+    
+    // --- EARTH DATA PROCESSING ---
+    let minR = Infinity;
+    earthData.forEach(p => {
+        const r = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        if (r < minR) minR = r;
     });
+
+    const finalData = [];
+    earthData.forEach((point, index) => {
+        const r = Math.sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
+        const isOcean = r < (minR + 0.15);
+
+        if (isOcean) {
+            if (index % 2 !== 0 || Math.random() > 0.04) return;
+            const jitter = 0.6;
+            finalData.push({
+                x: point.x + (Math.random() - 0.5) * jitter,
+                y: point.y + (Math.random() - 0.5) * jitter,
+                z: point.z + (Math.random() - 0.5) * jitter
+            });
+        } else {
+            finalData.push(point);
+        }
+    });
+
+    const instanceCount = finalData.length;
+    const instancedMesh = new THREE.InstancedMesh(baseGeometry, material, instanceCount);
+    const rotationSpeeds = new Float32Array(instanceCount);
+    const rotationAxes = new Float32Array(instanceCount * 3);
+    const randomOffsets = new Float32Array(instanceCount * 3);
+    const dummy = new THREE.Object3D();
+    const modelScale = 1.35;
+
+    finalData.forEach((point, i) => {
+        dummy.position.set(point.x * modelScale, point.y * modelScale, point.z * modelScale);
+        dummy.updateMatrix();
+        instancedMesh.setMatrixAt(i, dummy.matrix);
+
+        rotationSpeeds[i] = 0.5 + Math.random() * 2.0;
+        const randomAxis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+        rotationAxes[i * 3] = randomAxis.x;
+        rotationAxes[i * 3 + 1] = randomAxis.y;
+        rotationAxes[i * 3 + 2] = randomAxis.z;
+
+        randomOffsets[i * 3] = (Math.random() - 0.5) * 80;
+        randomOffsets[i * 3 + 1] = (Math.random() - 0.5) * 80;
+        randomOffsets[i * 3 + 2] = (Math.random() - 0.5) * 80;
+
+        const color = palette[Math.floor(Math.random() * palette.length)];
+        instancedMesh.setColorAt(i, color);
+    });
+    instancedMesh.instanceMatrix.needsUpdate = true; 
+
+    instancedMesh.geometry.setAttribute('aRotationSpeed', new THREE.InstancedBufferAttribute(rotationSpeeds, 1));
+    instancedMesh.geometry.setAttribute('aRotationAxis', new THREE.InstancedBufferAttribute(rotationAxes, 3));
+    instancedMesh.geometry.setAttribute('aRandomOffset', new THREE.InstancedBufferAttribute(randomOffsets, 3));
+
+    const earthContainer = new THREE.Group();
+    instancedMesh.rotation.z = Math.PI;
+    earthContainer.add(instancedMesh);
+    scene.add(earthContainer);
+    window.earthMesh = earthContainer;
+
+    // -------------------------------------------------------------------
+    // FOREGROUND/BACKGROUND AMBIENT PARTICLES (USING GLB)
+    // -------------------------------------------------------------------
+    const particleCount = 2000;
+
+    // Extract the clean geometry directly from your loaded Blender model
+    let particleGeom;
+    gltf.scene.traverse((child) => {
+        if (child.isMesh && !particleGeom) {
+            particleGeom = child.geometry.clone();
+            // Forces the pivot point to the absolute center for perfect local spinning
+            particleGeom.center(); 
+        }
+    });
+
+    const bluePalette = ['#00e5ff', '#1948bd', '#4da6ff', '#00bfff', '#8c1aff'].map(hex => new THREE.Color(hex));
+
+    const particleMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending 
+    });
+
+    particleMat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = customUniforms.uTime;
+
+        shader.vertexShader = `
+            uniform float uTime;
+            attribute float aParticleSpeed;
+            attribute vec3 aParticleAxis;
+            attribute float aPhase;
+            varying float vDistance;
+
+            mat4 rotationMatrix(vec3 axis, float angle) {
+                axis = normalize(axis);
+                float s = sin(angle);
+                float c = cos(angle);
+                float oc = 1.0 - c;
+                return mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s, 0.0,
+                            oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s, 0.0,
+                            oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c, 0.0,
+                            0.0, 0.0, 0.0, 1.0);
+            }
+        ` + shader.vertexShader;
+
+        shader.vertexShader = shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `
+            mat4 localRot = rotationMatrix(aParticleAxis, uTime * aParticleSpeed);
+            vec3 localPos = (localRot * vec4(transformed, 1.0)).xyz;
+            
+            vec4 instanceWorldPos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+            float distToCam = distance(cameraPosition, instanceWorldPos.xyz);
+            
+            float oscAmount = exp(-distToCam * 0.15) * 1.5; 
+            
+            vec3 oscillation = vec3(
+                sin(uTime * 0.05 + aPhase),
+                cos(uTime * 0.04 + aPhase),
+                sin(uTime * 0.06 - aPhase)
+            ) * oscAmount;
+            
+            vec4 worldPosition = modelMatrix * instanceMatrix * vec4(localPos, 1.0);
+            worldPosition.xyz += oscillation;
+            
+            vec4 mvPosition = viewMatrix * worldPosition;
+            gl_Position = projectionMatrix * mvPosition;
+            
+            vDistance = -mvPosition.z; 
+            `
+        );
+
+        shader.fragmentShader = `
+            varying float vDistance;
+        ` + shader.fragmentShader;
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <opaque_fragment>',
+            `
+            #include <opaque_fragment>
+            
+            float depthOpacity = smoothstep(1.0, 5.0, vDistance);
+            float backFade = exp(-(vDistance - 5.0) * 0.04); 
+            
+            // With a unified mesh, opacity remains perfectly uniform
+            float finalAlpha = depthOpacity * clamp(backFade, 0.0, 1.0) * 0.5;
+            
+            gl_FragColor = vec4(gl_FragColor.rgb, finalAlpha);
+            `
+        );
+    };
+
+    // Construct the instanced mesh using the imported Blender geometry
+    const particleMesh = new THREE.InstancedMesh(particleGeom, particleMat, particleCount);
+    const pDummy = new THREE.Object3D();
+
+    const pRotSpeeds = new Float32Array(particleCount);
+    const pRotAxes = new Float32Array(particleCount * 3);
+    const pPhases = new Float32Array(particleCount);
+
+    for (let i = 0; i < particleCount; i++) {
+        const skew = Math.pow(Math.random(), 2.5);
+        const z = 16.5 - (skew * 45);
+
+        pDummy.position.x = (Math.random() - 0.5) * 50;
+        pDummy.position.y = (Math.random() - 0.5) * 50;
+        pDummy.position.z = z;
+
+        const distFromCam = Math.abs(15 - z);
+
+        // DRASTICALLY REDUCED SCALE: Compensating for Blender's native 1-meter export size.
+        // Tweak these decimals up or down slightly if you want them bigger or smaller.
+        let pScale = 0.05 + (Math.random() * 0.05);  // Base ambient size for background particles
+        pScale += Math.exp(-distFromCam * 0.2) * 0.25; // Proximity bump for foreground particles
+
+        pDummy.scale.set(pScale, pScale, pScale);
+
+        pDummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+        pDummy.updateMatrix();
+        particleMesh.setMatrixAt(i, pDummy.matrix);
+        
+        particleMesh.setColorAt(i, bluePalette[Math.floor(Math.random() * bluePalette.length)]);
+        
+        pRotSpeeds[i] = (Math.random() - 0.5) * 0.15;
+
+        const ax = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+        pRotAxes[i * 3] = ax.x;
+        pRotAxes[i * 3 + 1] = ax.y;
+        pRotAxes[i * 3 + 2] = ax.z;
+
+        pPhases[i] = Math.random() * Math.PI * 2.0;
+    }
+
+    particleMesh.geometry.setAttribute('aParticleSpeed', new THREE.InstancedBufferAttribute(pRotSpeeds, 1));
+    particleMesh.geometry.setAttribute('aParticleAxis', new THREE.InstancedBufferAttribute(pRotAxes, 3));
+    particleMesh.geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(pPhases, 1));
+
+    scene.add(particleMesh);
+    window.particleMesh = particleMesh;
+
+    window.sceneStates = [
+        { rotX: -1.60, rotY: 0.08, rotZ: 3.00, posX: 2.38, posY: -2.57, posZ: 3.62 },  
+        { rotX: 0.2, rotY: 0, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
+        { rotX: 0.8, rotY: 3.14, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
+        { rotX: 0, rotY: -1.57, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
+        { rotX: 0, rotY: 3.14, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
+        { rotX: -0.8, rotY: 3.14, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 },
+        { rotX: -1.57, rotY: 0, rotZ: 0, posX: 3, posY: -2.57, posZ: 3.62 },
+        { rotX: -0.5, rotY: 0, rotZ: 0, posX: -3, posY: -2.57, posZ: 3.62 }
+    ];
+
+    window.earthMesh.position.set(window.sceneStates[0].posX, window.sceneStates[0].posY, window.sceneStates[0].posZ);
+    window.earthMesh.rotation.set(window.sceneStates[0].rotX, window.sceneStates[0].rotY, window.sceneStates[0].rotZ);
+
+    initGSAPScrollytelling();
+});
 
 // 5. Loading Splash Screen & Assembly Animation
 const splashScreen = document.getElementById('splash-screen');
