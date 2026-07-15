@@ -5,11 +5,27 @@
   box-sizing: border-box;
 }
 
+/* Update these specific blocks in your CSS */
 body {
   font-family: sans-serif;
-  background: linear-gradient(135deg, #fc9013, #fb490a);
+  background: #000000;
   color: #ffffff;
   overflow-x: hidden;
+  margin: 0;
+}
+
+.scroll-container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.step {
+  height: 110vh; /* Strictly locks each slide to the exact height of the monitor */
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  padding: 0 10vw;
 }
 
 /* Fixed WebGL Background */
@@ -19,28 +35,16 @@ body {
   left: 0;
   width: 100vw;
   height: 100vh;
-  z-index: -1;
-}
-
-/* Scrollytelling Sections */
-.scroll-container {
-  position: relative;
-  z-index: 1;
-}
-
-.step {
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding-left: 10vw;
+  z-index: 0; /* Changed from -1 so it can receive clicks */
+  pointer-events: auto; /* Guarantee it catches the mouse */
 }
 
 .content {
-  max-width: 400px;
-  background: rgba(255, 255, 255, 0.2);
+  max-width: 350px;
+  background: rgba(20, 20, 20, 0.7); /* Darker glassmorphism for black bg */
   padding: 2rem;
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
 }
 
@@ -52,4 +56,209 @@ body {
 .content p {
   font-size: 1.2rem;
   line-height: 1.5;
+}
+
+/* --- SPLASH SCREEN --- */
+#splash-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000000;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* Will be animated out by GSAP */
+}
+
+.splash-gif {
+  width: 150px;
+  height: auto;
+  opacity: 0.8;
+}
+
+.splash-text {
+  position: absolute;
+  bottom: 3rem;
+  left: 3rem;
+  font-family: monospace;
+  font-size: 1.2rem;
+  color: #a1a1aa;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* --- MAIN HEADER --- */
+.main-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2.5rem 4rem;
+  z-index: 100;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(135deg, #7c3aed, #3b82f6);
+  border-radius: 4px;
+}
+
+.main-header nav a {
+  color: #ffffff;
+  text-decoration: none;
+  margin-left: 2.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+}
+
+.main-header nav a:hover {
+  opacity: 1;
+}
+
+.btn-request {
+  background: #7c3aed;
+  color: #ffffff !important;
+  padding: 0.7rem 1.8rem;
+  border-radius: 30px;
+  opacity: 1 !important;
+}
+
+/* --- HERO SECTION (Page 1) --- */
+.hero-step {
+  height: 100vh; /* Normal height for the intro */
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  padding: 0 10vw;
+  position: relative;
+}
+
+.hero-content {
+  max-width: 550px;
+  z-index: 2;
+}
+
+.hero-title {
+  font-size: 6.5rem;
+  line-height: 0.95;
+  letter-spacing: -3px;
+  margin-bottom: 2rem;
+  font-weight: 500;
+}
+
+.hero-subtitle {
+  color: #f59e0b;
+  font-size: 0.8rem;
+  letter-spacing: 2px;
+  font-weight: bold;
+  margin-bottom: 1.5rem;
+}
+
+.hero-desc {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: #a1a1aa;
+  margin-bottom: 3rem;
+}
+
+.hero-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+/* --- DEV PANEL --- */
+#dev-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #fc9013; /* Vibrant orange base */
+  border: 2px solid #fb490a;
+  padding: 15px;
+  border-radius: 8px;
+  z-index: 10000;
+  width: 200px;
+  color: #ffffff;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.dev-header {
+  font-weight: bold;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.3);
+  padding-bottom: 5px;
+}
+
+.dev-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.dev-buttons button {
+  flex: 1;
+  padding: 5px;
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dev-buttons button.active {
+  background: #ffffff;
+  color: #fc9013;
+  font-weight: bold;
+}
+
+.dev-data {
+  background: rgba(0,0,0,0.3);
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.dev-note {
+  font-size: 0.7rem;
+  opacity: 0.8;
+  line-height: 1.3;
+}
+
+/* 1. Let mouse events pass through the giant invisible sections to hit the 3D canvas */
+.scroll-container, .step, .hero-step {
+  pointer-events: none; 
+}
+
+/* 2. Re-enable mouse events for the actual text, buttons, and dev panel so they still work */
+.content, .hero-content, .main-header, #dev-panel {
+  pointer-events: auto; 
+}
+
+/* 1. Let mouse events pass through the giant invisible sections to hit the 3D canvas */
+.scroll-container, .step, .hero-step {
+  pointer-events: none; 
+}
+
+/* 2. Re-enable mouse events for the actual text, buttons, and dev panel so they still work */
+.content, .hero-content, .main-header, #dev-panel {
+  pointer-events: auto; 
 }
