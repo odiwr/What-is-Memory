@@ -33,8 +33,8 @@ const renderScene = new RenderPass(scene, camera);
 composer.addPass(renderScene);
 
 // 2. Add Bloom (Glow Aura)
-// Parameters: resolution, strength, radius, threshold
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(sizes.width, sizes.height), 1.2, 0.5, 0.1);
+// INCREASED: threshold (0.5) so dim things don't glow, radius (0.8) for combined glow
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(sizes.width, sizes.height), .8, 0.8, .3);
 composer.addPass(bloomPass);
 
 // 3. Custom Dot Overlay Shader Pass
@@ -252,10 +252,14 @@ Promise.all([
         randomOffsets[i * 3 + 1] = (Math.random() - 0.5) * 80;
         randomOffsets[i * 3 + 2] = (Math.random() - 0.5) * 80;
 
-        const color = palette[Math.floor(Math.random() * palette.length)];
-        instancedMesh.setColorAt(i, color);
+        // Clone the color so we don't modify the global palette array
+        const baseColor = palette[Math.floor(Math.random() * palette.length)].clone();
+        
+        // Push the color into HDR values so it triggers the Bloom pass intensely
+        baseColor.multiplyScalar(3.0); 
+        instancedMesh.setColorAt(i, baseColor);
     });
-    instancedMesh.instanceMatrix.needsUpdate = true; 
+    instancedMesh.instanceMatrix.needsUpdate = true;
 
     instancedMesh.geometry.setAttribute('aRotationSpeed', new THREE.InstancedBufferAttribute(rotationSpeeds, 1));
     instancedMesh.geometry.setAttribute('aRotationAxis', new THREE.InstancedBufferAttribute(rotationAxes, 3));
@@ -270,19 +274,27 @@ Promise.all([
     // -------------------------------------------------------------------
     // FOREGROUND/BACKGROUND AMBIENT PARTICLES (USING GLB)
     // -------------------------------------------------------------------
-    const particleCount = 2000;
+    
+    // --- EASY CONTROLS ---
+    const ambientConfig = {
+        count: 250,           // Total number of ambient particles
+        glowIntensity: 1.9,   // Must be > 0.9 to glow. (Earth is at 3.0 for reference)
+        boxX: 20,             // Total Width (Left to Right)
+        boxY: 20,             // Total Height (Top to Bottom)
+        boxZ: 20,             // Total Depth (Front to Back)
+        centerZ: 5            // Shifts the whole box forward/backward (Camera is at Z: 15)
+    };
+    // ---------------------
 
-    // Extract the clean geometry directly from your loaded Blender model
     let particleGeom;
     gltf.scene.traverse((child) => {
         if (child.isMesh && !particleGeom) {
             particleGeom = child.geometry.clone();
-            // Forces the pivot point to the absolute center for perfect local spinning
             particleGeom.center(); 
         }
     });
 
-    const bluePalette = ['#00e5ff', '#1948bd', '#4da6ff', '#00bfff', '#8c1aff'].map(hex => new THREE.Color(hex));
+    const uniqueAmbientPalette = ['#3a7a59', '#57179e', '#cc9b2c', '#1948bd', '#e2d2eb'].map(hex => new THREE.Color(hex));
 
     const particleMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
@@ -352,44 +364,41 @@ Promise.all([
             float depthOpacity = smoothstep(1.0, 5.0, vDistance);
             float backFade = exp(-(vDistance - 5.0) * 0.04); 
             
-            // With a unified mesh, opacity remains perfectly uniform
-            float finalAlpha = depthOpacity * clamp(backFade, 0.0, 1.0) * 0.5;
+            float finalAlpha = depthOpacity * clamp(backFade, 0.0, 1.0) * 0.35;
             
             gl_FragColor = vec4(gl_FragColor.rgb, finalAlpha);
             `
         );
     };
 
-    // Construct the instanced mesh using the imported Blender geometry
-    const particleMesh = new THREE.InstancedMesh(particleGeom, particleMat, particleCount);
+    const particleMesh = new THREE.InstancedMesh(particleGeom, particleMat, ambientConfig.count);
     const pDummy = new THREE.Object3D();
 
-    const pRotSpeeds = new Float32Array(particleCount);
-    const pRotAxes = new Float32Array(particleCount * 3);
-    const pPhases = new Float32Array(particleCount);
+    const pRotSpeeds = new Float32Array(ambientConfig.count);
+    const pRotAxes = new Float32Array(ambientConfig.count * 3);
+    const pPhases = new Float32Array(ambientConfig.count);
 
-    for (let i = 0; i < particleCount; i++) {
-        const skew = Math.pow(Math.random(), 2.5);
-        const z = 16.5 - (skew * 45);
+    for (let i = 0; i < ambientConfig.count; i++) {
+        
+        // Spawn strictly inside the X, Y, Z controls
+        pDummy.position.x = (Math.random() - 0.5) * ambientConfig.boxX;
+        pDummy.position.y = (Math.random() - 0.5) * ambientConfig.boxY;
+        pDummy.position.z = ambientConfig.centerZ + ((Math.random() - 0.5) * ambientConfig.boxZ);
 
-        pDummy.position.x = (Math.random() - 0.5) * 50;
-        pDummy.position.y = (Math.random() - 0.5) * 50;
-        pDummy.position.z = z;
+        const distFromCam = Math.abs(15 - pDummy.position.z);
 
-        const distFromCam = Math.abs(15 - z);
-
-        // DRASTICALLY REDUCED SCALE: Compensating for Blender's native 1-meter export size.
-        // Tweak these decimals up or down slightly if you want them bigger or smaller.
-        let pScale = 0.05 + (Math.random() * 0.05);  // Base ambient size for background particles
-        pScale += Math.exp(-distFromCam * 0.2) * 0.25; // Proximity bump for foreground particles
+        let pScale = 0.05 + (Math.random() * 0.05);  
+        pScale += Math.exp(-distFromCam * 0.2) * 0.15; 
 
         pDummy.scale.set(pScale, pScale, pScale);
-
         pDummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
         pDummy.updateMatrix();
         particleMesh.setMatrixAt(i, pDummy.matrix);
         
-        particleMesh.setColorAt(i, bluePalette[Math.floor(Math.random() * bluePalette.length)]);
+        // Apply the adjustable glow
+        const ambientColor = uniqueAmbientPalette[Math.floor(Math.random() * uniqueAmbientPalette.length)].clone();
+        ambientColor.multiplyScalar(ambientConfig.glowIntensity); 
+        particleMesh.setColorAt(i, ambientColor);
         
         pRotSpeeds[i] = (Math.random() - 0.5) * 0.15;
 
@@ -488,11 +497,6 @@ const tick = () => {
 
     cameraGroup.position.x += (targetX - cameraGroup.position.x) * 0.05;
     cameraGroup.position.y += (-targetY - cameraGroup.position.y) * 0.05;
-
-    if (window.particleMesh) {
-        window.particleMesh.rotation.y = elapsedTime * 0.02;
-        window.particleMesh.rotation.x = elapsedTime * 0.01;
-    }
 
     if (window.earthMesh) {
         window.earthMesh.position.y += Math.sin(elapsedTime) * 0.001;
