@@ -31,12 +31,15 @@ const palette = ['#3a7a59', '#57179e', '#cc9b2c', '#cc9b2c', '#cc9b2c', '#cc9b2c
 // --- POST-PROCESSING PIPELINE ---
 const composer = new EffectComposer(renderer); 
 
+// 1. Render the base 3D scene
 const renderScene = new RenderPass(scene, camera); 
 composer.addPass(renderScene); 
 
+// 2. Add Bloom (Glow Aura)
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(sizes.width, sizes.height), .8, 0.8, .3); 
 composer.addPass(bloomPass); 
 
+// 3. Custom Dot Overlay Shader Pass
 const DotOverlayShader = { 
     uniforms: { 
         tDiffuse: { value: null }, 
@@ -88,8 +91,9 @@ const DotOverlayShader = {
 
 const dotPass = new ShaderPass(DotOverlayShader); 
 composer.addPass(dotPass); 
+// --------------------------------
 
-// Mouse tracking
+// Mouse tracking variables
 const cursor = { x: 0, y: 0 }; 
 let targetX = 0; 
 let targetY = 0; 
@@ -127,12 +131,12 @@ edges.forEach(edge => {
 const baseGeometry = mergeGeometries(edgeGeometries); 
 const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }); 
 
-// 3. Custom GPU Shaders
+// 3. Custom GPU Shaders - UPGRADED FOR PHASE 2
 const customUniforms = {
     uTime: { value: 0 }, 
     uFormProgress: { value: 0 }, 
     uExplodeProgress: { value: 0 }, 
-    uExplodeY: { value: -4.0 }, // FIXED: Anchored to exactly the physical bottom of the earth to eliminate scroll dead-zones
+    uExplodeY: { value: -1.0 }, // NEW: Tracks the vertical sweep of the explosion
     uBlinkIntensity: { value: 0 }, 
     uDimIntensity: { value: 0.0 }, 
     uMorphToBrain: { value: 0 }, 
@@ -142,103 +146,107 @@ const customUniforms = {
 };
 
 material.onBeforeCompile = (shader) => { 
-    shader.uniforms = { ...shader.uniforms, ...customUniforms }; 
+    shader.uniforms = { ...shader.uniforms, ...customUniforms }; //[cite: 19]
 
+    // VERTEX SHADER UPDATE
     shader.vertexShader = `
-        uniform float uTime; 
-        uniform float uFormProgress; 
-        uniform float uExplodeProgress; 
-        uniform float uExplodeY; 
-        uniform float uMorphToBrain; 
+        uniform float uTime; //[cite: 19]
+        uniform float uFormProgress; //[cite: 19]
+        uniform float uExplodeProgress; //[cite: 19]
+        uniform float uExplodeY; //[cite: 19]
+        uniform float uMorphToBrain; //[cite: 19]
         
-        attribute float aRotationSpeed; 
-        attribute vec3 aRotationAxis; 
-        attribute vec3 aRandomOffset; 
-        attribute vec3 aBrainPosition; 
-        attribute vec3 aExplodeVector; 
-        attribute float aBlinkFlag; 
+        attribute float aRotationSpeed; //[cite: 19]
+        attribute vec3 aRotationAxis; //[cite: 19]
+        attribute vec3 aRandomOffset; //[cite: 19]
+        attribute vec3 aBrainPosition; //[cite: 19]
+        attribute vec3 aExplodeVector; //[cite: 19]
+        attribute float aBlinkFlag; //[cite: 19]
         
-        varying float vPosY; 
-        varying float vDist; 
-        varying float vBlinkFlag; 
+        varying float vPosY; //[cite: 19]
+        varying float vDist; //[cite: 19]
+        varying float vBlinkFlag; //[cite: 19]
         
-        mat4 rotationMatrix(vec3 axis, float angle) { 
-            axis = normalize(axis); 
-            float s = sin(angle); 
-            float c = cos(angle); 
-            float oc = 1.0 - c; 
-            return mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s, 0.0, 
-                        oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s, 0.0, 
-                        oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c, 0.0, 
-                        0.0, 0.0, 0.0, 1.0); 
-        } 
-    ` + shader.vertexShader; 
+        mat4 rotationMatrix(vec3 axis, float angle) { //[cite: 19]
+            axis = normalize(axis); //[cite: 19]
+            float s = sin(angle); //[cite: 19]
+            float c = cos(angle); //[cite: 19]
+            float oc = 1.0 - c; //[cite: 19]
+            return mat4(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s, 0.0, //[cite: 19]
+                        oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s, 0.0, //[cite: 19]
+                        oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c, 0.0, //[cite: 19]
+                        0.0, 0.0, 0.0, 1.0); //[cite: 19]
+        } //[cite: 19]
+    ` + shader.vertexShader; //[cite: 19]
 
-    shader.vertexShader = shader.vertexShader.replace( 
-        '#include <begin_vertex>', 
+    shader.vertexShader = shader.vertexShader.replace( //[cite: 19]
+        '#include <begin_vertex>', //[cite: 19]
         `
-        #include <begin_vertex> 
+        #include <begin_vertex> //[cite: 19]
         
-        vBlinkFlag = aBlinkFlag; 
+        vBlinkFlag = aBlinkFlag; //[cite: 19]
         
-        vec4 targetWorldPos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); 
-        float dist = distance(cameraPosition, targetWorldPos.xyz); 
-        vDist = dist; 
+        vec4 targetWorldPos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); //[cite: 19]
+        float dist = distance(cameraPosition, targetWorldPos.xyz); //[cite: 19]
+        vDist = dist; //[cite: 19]
         
-        float expScale = exp(-(dist - 10.0) * 0.15);  
-        float proximityScale = smoothstep(2.0, 12.0, dist); 
-        float scale = clamp(expScale, 0.0, 1.0) * (0.2 + 0.8 * proximityScale); 
+        float expScale = exp(-(dist - 10.0) * 0.15);  //[cite: 19]
+        float proximityScale = smoothstep(2.0, 12.0, dist); //[cite: 19]
+        float scale = clamp(expScale, 0.0, 1.0) * (0.2 + 0.8 * proximityScale); //[cite: 19]
         
-        mat4 localRot = rotationMatrix(aRotationAxis, uTime * aRotationSpeed); 
-        vec3 localTransformed = (localRot * vec4(transformed * scale, 1.0)).xyz; 
+        mat4 localRot = rotationMatrix(aRotationAxis, uTime * aRotationSpeed); //[cite: 19]
+        vec3 localTransformed = (localRot * vec4(transformed * scale, 1.0)).xyz; //[cite: 19]
         
-        localTransformed += aRandomOffset * (1.0 - uFormProgress); 
-        vec3 targetMorphPos = mix(localTransformed, aBrainPosition + localTransformed, uMorphToBrain); 
+        localTransformed += aRandomOffset * (1.0 - uFormProgress); //[cite: 19]
+        vec3 targetMorphPos = mix(localTransformed, aBrainPosition + localTransformed, uMorphToBrain); //[cite: 19]
         
+        // NEW: Creates a 6-unit vertical band. As uExplodeY sweeps up, vertices smoothly transition from 0.0 to 1.0
         float explodeFactor = 1.0 - smoothstep(uExplodeY - 6.0, uExplodeY, targetWorldPos.y);
         
-        vec3 finalPos = targetMorphPos + (aExplodeVector * uExplodeProgress * explodeFactor); 
+        vec3 finalPos = targetMorphPos + (aExplodeVector * uExplodeProgress * explodeFactor); //[cite: 19]
         
-        transformed = finalPos; 
+        transformed = finalPos; //[cite: 19]
         
-        vec4 worldPosForDissolve = modelMatrix * instanceMatrix * vec4(finalPos, 1.0); 
-        vPosY = worldPosForDissolve.y; 
+        vec4 worldPosForDissolve = modelMatrix * instanceMatrix * vec4(finalPos, 1.0); //[cite: 19]
+        vPosY = worldPosForDissolve.y; //[cite: 19]
         `
     );
 
+    // FRAGMENT SHADER UPDATE
+    // (Leave your fragment shader block exactly as it is)
     shader.fragmentShader = `
-        uniform float uColorShift; 
-        uniform float uOpacityShift; 
-        uniform float uBlinkIntensity; 
-        uniform float uDimIntensity; 
-        uniform float uTime; 
+        uniform float uColorShift; //[cite: 19]
+        uniform float uOpacityShift; //[cite: 19]
+        uniform float uBlinkIntensity; //[cite: 19]
+        uniform float uDimIntensity; //[cite: 19]
+        uniform float uTime; //[cite: 19]
         
-        uniform float uDissolveY; 
-        varying float vPosY; 
-        varying float vDist; 
-        varying float vBlinkFlag; 
-    ` + shader.fragmentShader; 
+        uniform float uDissolveY; //[cite: 19]
+        varying float vPosY; //[cite: 19]
+        varying float vDist; //[cite: 19]
+        varying float vBlinkFlag; //[cite: 19]
+    ` + shader.fragmentShader; //[cite: 19]
 
-    shader.fragmentShader = shader.fragmentShader.replace( 
-        '#include <opaque_fragment>', 
+    shader.fragmentShader = shader.fragmentShader.replace( //[cite: 19]
+        '#include <opaque_fragment>', //[cite: 19]
         `
-        if (vPosY < uDissolveY) discard; 
+        if (vPosY < uDissolveY) discard; //[cite: 19]
         
-        #include <opaque_fragment> 
+        #include <opaque_fragment> //[cite: 19]
         
-        vec3 passionColor = vec3(1.0, 0.2, 0.6);  
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, passionColor, uColorShift); 
+        vec3 passionColor = vec3(1.0, 0.2, 0.6);  //[cite: 19]
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, passionColor, uColorShift); //[cite: 19]
         
-        float proximityFade = smoothstep(3.0, 12.0, vDist); 
-        gl_FragColor.rgb *= (0.3 + 0.7 * proximityFade); 
+        float proximityFade = smoothstep(3.0, 12.0, vDist); //[cite: 19]
+        gl_FragColor.rgb *= (0.3 + 0.7 * proximityFade); //[cite: 19]
         
-        float dimFactor = 1.0 - (uDimIntensity * (1.0 - vBlinkFlag)); 
-        gl_FragColor.rgb *= dimFactor; 
+        float dimFactor = 1.0 - (uDimIntensity * (1.0 - vBlinkFlag)); //[cite: 19]
+        gl_FragColor.rgb *= dimFactor; //[cite: 19]
         
-        gl_FragColor.a *= uOpacityShift; 
+        gl_FragColor.a *= uOpacityShift; //[cite: 19]
 
-        float blink = (sin(uTime * 15.0) * 0.5 + 0.5) * uBlinkIntensity * vBlinkFlag; 
-        gl_FragColor.rgb += vec3(blink) * (0.3 + 0.7 * proximityFade); 
+        float blink = (sin(uTime * 15.0) * 0.5 + 0.5) * uBlinkIntensity * vBlinkFlag; //[cite: 19]
+        gl_FragColor.rgb += vec3(blink) * (0.3 + 0.7 * proximityFade); //[cite: 19]
         `
     );
 };
@@ -506,6 +514,7 @@ Promise.all([
     scene.add(particleMesh); 
     window.particleMesh = particleMesh; 
 
+    // 5. Memory Checking & Initialization
     const hasSeenAnimation = false; 
 
     if (hasSeenAnimation) {
@@ -552,6 +561,7 @@ function initSplashAndScrollytelling() {
         }); 
     }, 1500); 
 
+    // Phase 2 Timeline: 8 Specific Steps
     const tl = gsap.timeline({
         scrollTrigger: { 
             trigger: ".scroll-container", 
@@ -562,61 +572,71 @@ function initSplashAndScrollytelling() {
         }
     });
 
+    // Define strict timing constraints for the scroll mapped duration
     const mainDur = 1.0;
     const microDur = mainDur / 2.0;
 
-    // Step 1: Default Current Scene
+    // Step 1: Default Current Scene (Serves as the immediate start trigger)
     tl.addLabel('step1');
 
     // Step 2 Setup
-    tl.addLabel('step2');
+    tl.addLabel('step2')
+      .to(customUniforms.uExplodeProgress, { value: 7.5, duration: 0.01 }, "step2") 
+      // NEW: Lowered to 0.35 so the non-green vertices stay much brighter
+      .to(customUniforms.uDimIntensity, { value: 0.35, ease: "none", duration: microDur * 4 }, "step2"); 
 
-    // FIXED: These single tweens span smoothly across all 4 micro-steps without segmented jitter.
-    tl.to(customUniforms.uExplodeProgress, { value: 7.5, duration: 0.01 }, 'step2') 
-      .to(customUniforms.uDimIntensity, { value: 0.35, ease: "none", duration: microDur * 4 }, 'step2')
-      .to(window.earthMesh.position, { x: -4.0, z: 6.0, ease: "none", duration: microDur * 4 }, 'step2')
-      .to(window.earthMesh.scale, { x: 0.4, y: 0.4, z: 0.4, ease: "none", duration: microDur * 4 }, 'step2');
+    // Micro-step 2a: Move, shrink, and explode bottom section
+    tl.addLabel('step2a')
+      .to(customUniforms.uExplodeY, { value: -4.0, ease: "none", duration: microDur }, 'step2a')
+      .to(window.earthMesh.position, { x: 0.5, z: 4.5, ease: "none", duration: microDur }, 'step2a')
+      .to(window.earthMesh.scale, { x: 0.85, y: 0.85, z: 0.85, ease: "none", duration: microDur }, 'step2a');
 
-    // FIXED: Micro-steps for the explosion sweep are now perfectly bounded to the earth's dimensions (-4 to 5)
-    tl.to(customUniforms.uExplodeY, { value: -1.75, ease: "none", duration: microDur }, 'step2');
+    // Micro-step 2b: Move, shrink, and explode lower-mid section
+    tl.addLabel('step2b')
+      .to(customUniforms.uExplodeY, { value: -0.5, ease: "none", duration: microDur }, 'step2b')
+      .to(window.earthMesh.position, { x: -1.0, z: 5.0, ease: "none", duration: microDur }, 'step2b')
+      .to(window.earthMesh.scale, { x: 0.7, y: 0.7, z: 0.7, ease: "none", duration: microDur }, 'step2b');
 
-    tl.addLabel('step2b', 'step2+=' + microDur)
-      .to(customUniforms.uExplodeY, { value: 0.5, ease: "none", duration: microDur }, 'step2b');
+    // Micro-step 2c: Move, shrink, and explode upper-mid section
+    tl.addLabel('step2c')
+      .to(customUniforms.uExplodeY, { value: 3.0, ease: "none", duration: microDur }, 'step2c')
+      .to(window.earthMesh.position, { x: -2.5, z: 5.5, ease: "none", duration: microDur }, 'step2c')
+      .to(window.earthMesh.scale, { x: 0.55, y: 0.55, z: 0.55, ease: "none", duration: microDur }, 'step2c');
 
-    tl.addLabel('step2c', 'step2+=' + (microDur * 2))
-      .to(customUniforms.uExplodeY, { value: 2.75, ease: "none", duration: microDur }, 'step2c');
+    // Micro-step 2d: Move, shrink, and explode top section
+    tl.addLabel('step2d')
+      .to(customUniforms.uExplodeY, { value: 15.0, ease: "none", duration: microDur }, 'step2d')
+      .to(window.earthMesh.position, { x: -4.0, z: 6.0, ease: "none", duration: microDur }, 'step2d') // NEW: Less aggressive Z-depth
+      .to(window.earthMesh.scale, { x: 0.4, y: 0.4, z: 0.4, ease: "none", duration: microDur }, 'step2d'); // NEW: Mesh shrinks as it approaches
 
-    tl.addLabel('step2d', 'step2+=' + (microDur * 3))
-      .to(customUniforms.uExplodeY, { value: 5.0, ease: "none", duration: microDur }, 'step2d');
-
-    // Step 3: Specific nodes blinking
-    tl.addLabel('step3', 'step2+=' + (microDur * 4))
-      .to(customUniforms.uBlinkIntensity, { value: 1.0, duration: mainDur / 4, yoyo: true, repeat: 3 }, 'step3'); 
+    // Step 3: Specific nodes blinking (Movement strictly frozen)
+    tl.addLabel('step3')
+      .to(customUniforms.uBlinkIntensity, { value: 1.0, duration: mainDur / 4, yoyo: true, repeat: 3 }); 
 
     // Step 4: Reform to a brain 3D model
-    tl.addLabel('step4', 'step3+=' + mainDur)
-      .to(customUniforms.uExplodeProgress, { value: 0, ease: "power2.in", duration: mainDur }, 'step4') 
-      .to(customUniforms.uMorphToBrain, { value: 1.0, ease: "power2.inOut", duration: mainDur }, 'step4') 
-      .to(window.earthMesh.scale, { x: 1.0, y: 1.0, z: 1.0, ease: "power2.inOut", duration: mainDur }, 'step4') 
-      .to(customUniforms.uDimIntensity, { value: 0.0, ease: "power2.inOut", duration: mainDur }, 'step4'); 
+    tl.addLabel('step4')
+      .to(customUniforms.uExplodeProgress, { value: 0, ease: "power2.in", duration: mainDur }) 
+      .to(customUniforms.uMorphToBrain, { value: 1.0, ease: "power2.inOut", duration: mainDur }, "<") 
+      .to(window.earthMesh.scale, { x: 1.0, y: 1.0, z: 1.0, ease: "power2.inOut", duration: mainDur }, "<") // NEW: Restores full scale for the brain
+      .to(customUniforms.uDimIntensity, { value: 0.0, ease: "power2.inOut", duration: mainDur }, "<"); 
 
     // Step 5: Vertices low opacity
-    tl.addLabel('step5', 'step4+=' + mainDur)
-      .to(customUniforms.uOpacityShift, { value: 0.3, ease: "power1.inOut", duration: mainDur }, 'step5');
+    tl.addLabel('step5')
+      .to(customUniforms.uOpacityShift, { value: 0.3, ease: "power1.inOut", duration: mainDur });
 
     // Step 6: Explodes again (Pink passion)
-    tl.addLabel('step6', 'step5+=' + mainDur)
-      .to(customUniforms.uColorShift, { value: 1.0, ease: "power1.inOut", duration: mainDur }, 'step6')
-      .to(customUniforms.uExplodeProgress, { value: 8.0, ease: "expo.out", duration: mainDur }, 'step6');
+    tl.addLabel('step6')
+      .to(customUniforms.uColorShift, { value: 1.0, ease: "power1.inOut", duration: mainDur })
+      .to(customUniforms.uExplodeProgress, { value: 8.0, ease: "expo.out", duration: mainDur }, "<");
 
     // Step 7: Reforms to segmented brain & colors return to normal
-    tl.addLabel('step7', 'step6+=' + mainDur)
-      .to(customUniforms.uExplodeProgress, { value: 0, ease: "power2.in", duration: mainDur }, 'step7')
-      .to(customUniforms.uColorShift, { value: 0.0, ease: "power2.inOut", duration: mainDur }, 'step7'); 
+    tl.addLabel('step7')
+      .to(customUniforms.uExplodeProgress, { value: 0, ease: "power2.in", duration: mainDur })
+      .to(customUniforms.uColorShift, { value: 0.0, ease: "power2.inOut", duration: mainDur }, "<"); 
 
     // Step 8: Brain moves forward past camera
-    tl.addLabel('step8', 'step7+=' + mainDur)
-      .to(cameraGroup.position, { z: -10, ease: "power2.in", duration: mainDur }, 'step8');
+    tl.addLabel('step8')
+      .to(cameraGroup.position, { z: -10, ease: "power2.in", duration: mainDur });
 }
 
 const clock = new THREE.Clock(); 
